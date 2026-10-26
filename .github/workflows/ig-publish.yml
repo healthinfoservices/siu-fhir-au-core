@@ -1,0 +1,144 @@
+# Builds the implementation guide on every push and pull request, and publishes it to
+# GitHub Pages from the default branch.
+# One-time setup: repository Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+name: Build and publish IG
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ig-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Set to "true" to fail the build when the IG Publisher QA report has errors.
+  FAIL_ON_QA_ERRORS: "false"
+
+jobs:
+  test:
+    name: Service tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install Python requirements
+        run: pip install -r requirements.txt
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+  build-ig:
+    name: Build IG
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install SUSHI, Jekyll and Python requirements
+        run: |
+          pip install -r requirements.txt
+          npm install -g fsh-sushi
+          gem install jekyll --no-document
+          sushi --version
+          jekyll --version
+
+      - name: Cache FHIR packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.fhir/packages
+          key: fhir-packages-${{ hashFiles('ig/sushi-config.yaml') }}
+          restore-keys: fhir-packages-
+
+      - name: Install AU Core / AU Base packages into the cache
+        run: python scripts/install_fhir_packages.py
+
+      - name: Check examples are up to date with the service code
+        run: |
+          python ig/tools/gen_examples.py
+          git diff --exit-code -- ig/input/fsh/examples.fsh || {
+            echo "::error::ig/input/fsh/examples.fsh is out of date - run: python ig/tools/gen_examples.py"; exit 1; }
+
+      - name: Download IG Publisher
+        run: |
+          mkdir -p ig/input-cache
+          curl -sSL -o ig/input-cache/publisher.jar \
+            https://github.com/HL7/fhir-ig-publisher/releases/latest/download/publisher.jar
+
+      - name: Run IG Publisher (runs SUSHI first)
+        working-directory: ig
+        run: java -Xmx6g -jar input-cache/publisher.jar -ig .
+
+      - name: QA summary
+        if: always()
+        run: |
+          if [ -f ig/output/qa.json ]; then
+            python - <<'PY'
+          import json, os
+          q = json.load(open("ig/output/qa.json"))
+          errs, warns, hints = q.get("errs", "?"), q.get("warnings", "?"), q.get("hints", "?")
+          line = f"IG Publisher QA: {errs} errors, {warns} warnings, {hints} hints"
+          print(line)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(f"### {line}\nDownload the `qa-report` artifact or open qa.html on the published site.\n")
+          if isinstance(errs, int) and errs and os.environ.get("FAIL_ON_QA_ERRORS") == "true":
+              raise SystemExit(f"::error::{errs} QA errors")
+          PY
+          else
+            echo "::warning::No qa.json produced"
+          fi
+
+      - name: Upload QA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-report
+          path: |
+            ig/output/qa.html
+            ig/output/qa.json
+            ig/output/qa.txt
+          if-no-files-found: ignore
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ig/output
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build-ig
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,3 @@
+# Time zone database for Python's zoneinfo. Needed on Windows (no system time zone data);
+# harmless elsewhere. Everything else in this project uses only the standard library.
+tzdata

@@ -1,0 +1,6 @@
+{
+  "_comment": "Local knowledge that SIU messages don't carry: AIL-4 location type translations. Facility Organizations live on the FHIR server (seed/organizations.json); MRN systems are built as http://example.org/fhir/sid/mrn/<PID-3.4>.",
+  "locationTypes": {
+    "_comment": "AIL-4 code -> Coding from ServiceDeliveryLocationRoleType - AU Extended. Example only (code not verified against the value set): \"CLIN\": {\"system\": \"http://terminology.hl7.org/CodeSystem/v3-RoleCode\", \"code\": \"OF\", \"display\": \"Outpatient facility\"}"
+  }
+}

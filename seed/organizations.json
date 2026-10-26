@@ -1,0 +1,37 @@
+{
+  "resourceType": "Bundle",
+  "type": "transaction",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:3b1f0d52-9c1e-4b8e-9a51-0c6f2f8d1a01",
+      "resource": {
+        "resourceType": "Organization",
+        "meta": {
+          "profile": ["http://hl7.org.au/fhir/core/StructureDefinition/au-core-organization"]
+        },
+        "identifier": [
+          {"system": "http://example.org/fhir/sid/organization", "value": "SIMHOSP"}
+        ],
+        "active": true,
+        "name": "Simulated Hospital",
+        "telecom": [{"system": "phone", "value": "07 0000 0000", "use": "work"}],
+        "address": [
+          {
+            "use": "work",
+            "type": "physical",
+            "text": "1 Simulated Way, Brisbane, QLD 4000",
+            "line": ["1 Simulated Way"],
+            "city": "Brisbane",
+            "state": "QLD",
+            "postalCode": "4000",
+            "country": "AU"
+          }
+        ]
+      },
+      "request": {
+        "method": "PUT",
+        "url": "Organization?identifier=http://example.org/fhir/sid/organization|SIMHOSP"
+      }
+    }
+  ]
+}

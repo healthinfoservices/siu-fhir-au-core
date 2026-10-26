@@ -1,0 +1,61 @@
+# SUSHI configuration: SIU -> FHIR (AU Core 2.0.0) proof-of-concept implementation guide.
+# Placeholders to replace for real use: id, canonical, publisher.
+# If you change `canonical`, set the service's IG_CANONICAL environment variable to the same value.
+id: example.fhir.siu2fhir.au
+canonical: http://example.org/fhir/siu2fhir-au
+name: SIU2FHIRAUCore
+title: HL7 v2 SIU to FHIR Appointment - AU Core (Proof of Concept)
+description: >-
+  Describes how a proof-of-concept service converts HL7 v2 SIU S12, S13, S14 and S15
+  scheduling messages into FHIR R4 resources that conform to AU Core 2.0.0
+  (Patient, Practitioner, Location, Organization) plus an Appointment profile.
+  Simulated data only; not for clinical use.
+status: draft
+experimental: true
+version: 0.1.0
+fhirVersion: 4.0.1
+copyrightYear: 2026+
+releaseLabel: ci-build
+license: CC0-1.0
+jurisdiction: urn:iso:std:iso:3166#AU "Australia"
+publisher:
+  name: SIU2FHIR PoC
+
+dependencies:
+  hl7.fhir.au.core: 2.0.0
+  # AU Core 2.0.0 depends on AU Base 6.0.0. Listed explicitly so FSH can refer to AU Base
+  # definitions directly and the version is pinned.
+  hl7.fhir.au.base: 6.0.0
+
+pages:
+  index.md:
+    title: Home
+  architecture.md:
+    title: Architecture
+  au-core.md:
+    title: AU Core Conformance
+  mapping.md:
+    title: HL7 v2 to FHIR Mapping
+  registry.md:
+    title: Local Registry
+  messaging.md:
+    title: Message Processing and Acknowledgements
+  lifecycle.md:
+    title: Worked Example
+  building.md:
+    title: Building This Guide
+  open-issues.md:
+    title: Open Issues
+
+menu:
+  Home: index.html
+  AU Core: au-core.html
+  Mapping: mapping.html
+  Processing: messaging.html
+  Worked Example: lifecycle.html
+  Artifacts: artifacts.html
+  More:
+    Architecture: architecture.html
+    Local Registry: registry.html
+    Building This Guide: building.html
+    Open Issues: open-issues.html
