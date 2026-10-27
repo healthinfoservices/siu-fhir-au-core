@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 @dataclass(frozen=True)
 class Config:
-    fhir_base_url: str = os.getenv("FHIR_BASE_URL", "http://localhost:8080/fhir")
+    fhir_base_url: str = os.getenv("FHIR_BASE_URL", "https://gw.interop.community/efiqcon2b/open")
     # Base for identifier systems. Real deployments should use agreed URIs/OIDs
     # (e.g. the AU IHI / Medicare systems); these are placeholders for the PoC.
     identifier_system_base: str = os.getenv(
