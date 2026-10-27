@@ -70,13 +70,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.fhir/packages
-          key: fhir-packages-${{ hashFiles('ig/sushi-config.yaml') }}
-          restore-keys: fhir-packages-
-
-      - name: Install AU Core / AU Base packages into the cache
-        # Optional warm-up: SUSHI and the IG Publisher download anything still missing.
-        continue-on-error: true
-        run: python scripts/install_fhir_packages.py
+          # v2: earlier caches hold an incomplete hl7.fhir.r4.core (missing other/) - never restore them.
+          key: fhir-packages-v2-${{ hashFiles('ig/sushi-config.yaml') }}
+          restore-keys: fhir-packages-v2-
 
       - name: Check examples are up to date with the service code
         run: |

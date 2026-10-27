@@ -86,7 +86,11 @@ def resolve_version(pkg: str, spec: str, registries: list[str]) -> str | None:
 
 
 def extract(data: bytes, dest: pathlib.Path) -> dict:
-    """Extract a package .tgz into dest (expects a top-level 'package/' folder). Returns package.json."""
+    """Extract a package .tgz into dest, keeping EVERY top-level folder (package/, other/, ...).
+
+    The IG Publisher needs more than package/: e.g. hl7.fhir.r4.core's other/spec.internals.
+    Returns package.json.
+    """
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="fhirpkg-"))
     try:
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
@@ -98,14 +102,14 @@ def extract(data: bytes, dest: pathlib.Path) -> dict:
                 tf.extractall(tmp, filter="data")
             else:
                 tf.extractall(tmp)
-        src = tmp / "package"
-        if not src.is_dir():
+        if not (tmp / "package").is_dir():
             raise RuntimeError("archive has no 'package/' folder - is it a FHIR NPM package?")
-        manifest = json.loads((src / "package.json").read_text(encoding="utf-8"))
+        manifest = json.loads((tmp / "package" / "package.json").read_text(encoding="utf-8"))
         if dest.exists():
             shutil.rmtree(dest)
         dest.mkdir(parents=True)
-        shutil.move(str(src), str(dest / "package"))
+        for entry in tmp.iterdir():
+            shutil.move(str(entry), str(dest / entry.name))
         return manifest
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
