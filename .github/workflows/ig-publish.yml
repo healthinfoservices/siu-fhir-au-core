@@ -67,7 +67,7 @@ jobs:
           jekyll --version
 
       - name: Cache FHIR packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.fhir/packages
           key: fhir-packages-${{ hashFiles('ig/sushi-config.yaml') }}
@@ -88,12 +88,29 @@ jobs:
           curl -sSL -o ig/input-cache/publisher.jar \
             https://github.com/HL7/fhir-ig-publisher/releases/latest/download/publisher.jar
 
-      - name: Run IG Publisher (runs SUSHI first)
+      - name: Compile FSH with SUSHI
+        id: sushi
         working-directory: ig
-        run: java -Xmx6g -jar input-cache/publisher.jar -ig .
+        run: sushi . 2>&1 | tee sushi.log; exit ${PIPESTATUS[0]}
+
+      - name: Run IG Publisher
+        id: publisher
+        working-directory: ig
+        run: java -Xmx6g -jar input-cache/publisher.jar -ig . 2>&1 | tee publisher.log; exit ${PIPESTATUS[0]}
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: build-logs
+          path: |
+            ig/sushi.log
+            ig/publisher.log
+            ig/fsh-generated/
+          if-no-files-found: ignore
 
       - name: QA summary
-        if: always()
+        if: always() && steps.publisher.outcome != 'skipped'
         run: |
           if [ -f ig/output/qa.json ]; then
             python - <<'PY'
@@ -113,7 +130,7 @@ jobs:
 
       - name: Upload QA report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: qa-report
           path: |
@@ -141,4 +158,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
