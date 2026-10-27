@@ -74,6 +74,8 @@ jobs:
           restore-keys: fhir-packages-
 
       - name: Install AU Core / AU Base packages into the cache
+        # Optional warm-up: SUSHI and the IG Publisher download anything still missing.
+        continue-on-error: true
         run: python scripts/install_fhir_packages.py
 
       - name: Check examples are up to date with the service code
