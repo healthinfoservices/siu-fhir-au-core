@@ -21,5 +21,7 @@
 ### Carried over from the base proof of concept
 
 * Each SIU message rebuilds the whole Appointment, so edits made directly in FHIR are overwritten by the next message for that appointment.
+* By default an existing Patient or Practitioner is never updated, so demographic changes in later SIU messages (new address, phone, corrected name) are not applied. They must be maintained on the FHIR server, or `PATIENT_PRACTITIONER_WRITE_MODE=upsert` set.
+* A Patient is matched on the first PID-3 repetition only. If the server's Patient doesn't carry that identifier, a second Patient is created.
 * Differences from the HL7 v2-to-FHIR IG: SCH-7 → `appointmentType`, Started → `arrived`, resource timing rolled up to `Appointment.start`/`end`.
 * No `Slot` or `Schedule` resources; no authentication or TLS.

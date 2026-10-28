@@ -20,6 +20,7 @@ services:
       AU_REGISTRY: /app/config/au-registry.json
       MRN_SYSTEM_BASE: http://example.org/fhir/sid/mrn
       ORGANIZATION_ID_SYSTEM: http://example.org/fhir/sid/organization
+      PATIENT_PRACTITIONER_WRITE_MODE: create-only   # or upsert: SIU data overwrites existing Patient/Practitioner
       INDIGENOUS_STATUS_FROM_PID10: "true"
       SET_META_PROFILE: "true"
       LOG_LEVEL: INFO

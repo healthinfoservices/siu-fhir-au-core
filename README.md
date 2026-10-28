@@ -42,6 +42,7 @@ Configuration (environment variables) is as for the base PoC, plus:
 | `IG_CANONICAL` | `http://example.org/fhir/siu2fhir-au` | Base for the extension / profile URLs the service writes. **Must equal `canonical` in `ig/sushi-config.yaml`** |
 | `AU_REGISTRY` | `config/au-registry.json` | Local registry file |
 | `MRN_SYSTEM_BASE` | `http://example.org/fhir/sid/mrn` | MRN identifier system = `<base>/<PID-3.4>`; no assigner is sent |
+| `PATIENT_PRACTITIONER_WRITE_MODE` | `create-only` | `create-only`: an existing Patient / Practitioner on the server is used unchanged, and one is created from the SIU only if none matches. `upsert`: the SIU data overwrites it (conditional update - the original behaviour) |
 | `ORGANIZATION_ID_SYSTEM` | `http://example.org/fhir/sid/organization` | Identifier system used to find a facility's Organization (value = AIL-3.4) |
 | `INDIGENOUS_STATUS_FROM_PID10` | `true` | Map PID-10 to the Indigenous status extension |
 | `SET_META_PROFILE` | `true` | Put AU Core / IG profile URLs in `meta.profile` |
@@ -69,6 +70,19 @@ python tools/seed_fhir.py --transaction       # or post the file as one FHIR tra
 The seed file is an ordinary FHIR transaction Bundle of Organizations, each with the
 `http://example.org/fhir/sid/organization` identifier; re-running it updates rather than duplicates.
 Sample 05 uses facility `SATELLITE`, which isn't seeded, to show the placeholder.
+
+## Existing Patients and Practitioners are not overwritten
+
+By default (`PATIENT_PRACTITIONER_WRITE_MODE=create-only`) the service searches for the Patient (first
+PID-3 identifier) and each Practitioner (AIP-3 identifier). If one exists it is referenced from the
+Appointment and **never modified** - the server's copy is assumed to be richer or more accurate - and the
+Appointment's participant display is taken from it. Only when none exists is one created from the SIU
+data, using `POST` with `If-None-Exist` so it can't be duplicated.
+
+Consequences: demographic changes in later SIU messages are not applied, and a Patient on the server
+that doesn't carry the first PID-3 identifier won't be matched (a second Patient is created). Set
+`PATIENT_PRACTITIONER_WRITE_MODE=upsert` to go back to overwriting from the SIU data. Locations are
+still created or updated from the SIU message either way.
 
 ## Build the implementation guide locally
 

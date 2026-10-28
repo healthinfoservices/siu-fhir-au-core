@@ -5,7 +5,7 @@ Patient, Practitioner, Location and Organization are built to the AU Core profil
 conforms to this project's SIU AU Appointment profile.
 
 This module is pure: it never talks to the network. `map_siu()` returns the
-Patient / Practitioner / Location resources to upsert, and a function that
+Patient / Practitioner / Location / Organization resources to write, and a function that
 builds the Appointment once the server-side ids of those resources are known.
 
 Field positions used (HL7 v2.5-style numbering):
@@ -95,7 +95,9 @@ class UpsertItem:
     resource: dict
     # (element, key of another UpsertItem): filled with a Reference before upsert
     links: list = field(default_factory=list)
-    # "upsert" = conditional update; "lookup-or-create" = use the server's copy, create only if missing
+    # "upsert" = conditional update (Location);
+    # "lookup-or-create" = use the server's copy unchanged, create only if missing
+    # (Patient, Practitioner, Organization)
     mode: str = "upsert"
 
 
@@ -109,7 +111,8 @@ class MappedSIU:
     practitioners: list[UpsertItem]
     locations: list[UpsertItem]
     organizations: list[UpsertItem]
-    build_appointment: Callable[[dict[str, str], Optional[str]], dict]
+    # build_appointment(refs, existing_status, displays=None); displays: item key -> actor display
+    build_appointment: Callable[..., dict]
     warnings: list[str] = field(default_factory=list)
 
 
@@ -349,7 +352,10 @@ def _patient(pid: Segment, base: str, reg: au.Registry, warnings: list[str]) -> 
         res["communication"] = [{"language": lang}]
 
     primary = identifiers[0]
-    return UpsertItem("patient", "Patient", _search(primary["system"], primary["value"]), _profile(res))
+    # An existing Patient on the server is used as is (it is likely richer / more accurate);
+    # this one is only created when no Patient has the primary identifier.
+    return UpsertItem("patient", "Patient", _search(primary["system"], primary["value"]), _profile(res),
+                      mode="lookup-or-create")
 
 
 def _practitioner(aip: Segment, idx: int, base: str, warnings: list[str]) -> tuple[Optional[UpsertItem], dict]:
@@ -400,7 +406,9 @@ def _practitioner(aip: Segment, idx: int, base: str, warnings: list[str]) -> tup
     key = f"practitioner{idx}"
     participant["_ref"] = key
     participant["_display"] = display
-    return UpsertItem(key, "Practitioner", _search(ident["system"], pid_val), _profile(res)), participant
+    # As for Patient: an existing Practitioner is used as is; create only if missing.
+    return (UpsertItem(key, "Practitioner", _search(ident["system"], pid_val), _profile(res),
+                       mode="lookup-or-create"), participant)
 
 
 def _organization(facility: str) -> UpsertItem:
@@ -589,7 +597,11 @@ def map_siu(msg: Message, base: str, tz: tzinfo, reg: Optional[au.Registry] = No
             return "booked"
         return existing_status or "booked"   # S13/S14 without SCH-25 keep current status
 
-    def build_appointment(refs: dict[str, str], existing_status: Optional[str]) -> dict:
+    def build_appointment(refs: dict[str, str], existing_status: Optional[str],
+                          displays: Optional[dict[str, str]] = None) -> dict:
+        """displays: item key -> actor display taken from the server's copy of the resource,
+        used instead of the SIU name when the resource already existed."""
+        displays = displays or {}
         status = decide_status(existing_status)
         if (start is None or end is None) and status not in STATUSES_WITHOUT_TIMES:
             raise MappingError(
@@ -600,6 +612,7 @@ def map_siu(msg: Message, base: str, tz: tzinfo, reg: Optional[au.Registry] = No
         def resolve(part: dict) -> dict:
             part = dict(part)
             key, disp = part.pop("_ref", None), part.pop("_display", None)
+            disp = displays.get(key) or disp
             if key:
                 part["actor"] = {"reference": refs[key]}
                 if disp:
@@ -609,6 +622,7 @@ def map_siu(msg: Message, base: str, tz: tzinfo, reg: Optional[au.Registry] = No
         patient_actor: dict = {"reference": refs["patient"]}
         pname = next((n for n in patient.resource["name"] if "text" in n), {})
         pdisplay = " ".join(pname.get("given", []) + ([pname["family"]] if pname.get("family") else []))
+        pdisplay = displays.get("patient") or pdisplay
         if pdisplay:
             patient_actor["display"] = pdisplay
         participants = [{"actor": patient_actor, "required": "required", "status": "accepted"}]

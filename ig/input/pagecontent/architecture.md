@@ -33,7 +33,7 @@
 2. Map the message to resources. If required data is missing, reply `AE`.
 3. Search HAPI for an existing Appointment by its filler (SCH-2) or placer (SCH-1) identifier.
 4. If that Appointment has a later [source message date/time](StructureDefinition-source-message-datetime.html) than this message's MSH-7, reply `AA` and change nothing.
-5. Look up each facility's Organization on the server (creating a tagged placeholder only if it's missing), then create or update the Patient, Practitioner and Location resources with conditional updates. Each Location references its facility's Organization and takes its address.
+5. Look up each facility's Organization on the server (creating a tagged placeholder only if it's missing), then find or create the Patient and Practitioners (an existing one is used unchanged; set `PATIENT_PRACTITIONER_WRITE_MODE=upsert` to overwrite it instead) and create or update the Locations with conditional updates. Each Location references its facility's Organization and takes its address.
 6. Build the Appointment, referencing the server ids from step 5, and write it.
 7. Reply `AA`.
 

@@ -375,5 +375,90 @@ class OrganizationLookupTests(unittest.TestCase):
         self.assertEqual(mapping.ORGANIZATION_ID_SYSTEM, ORG_SYSTEM)
 
 
+class PatientPractitionerWriteModeTests(unittest.TestCase):
+    """PATIENT_PRACTITIONER_WRITE_MODE: create-only (default) never changes an existing Patient or
+    Practitioner on the server; upsert overwrites it with the SIU data (the original behaviour)."""
+
+    def existing(self, fhir, item, rid, name):
+        """Put a richer, curated resource on the server matching the SIU item's search identifier."""
+        from urllib.parse import parse_qs
+        from fake_fhir import _split_token
+        system, value = _split_token(parse_qs(item.search)["identifier"][0])
+        res = {"resourceType": item.resource_type, "id": rid,
+               "identifier": [{"system": system, "value": value}],
+               "name": [name], "telecom": [{"system": "email", "value": "curated@example.org"}]}
+        fhir.store.setdefault(item.resource_type, {})[rid] = res
+        return dict(res)
+
+    def writes(self, fhir, rtype):
+        return [r for r in fhir.requests if r[0] in ("PUT", "POST") and r[1].split("?")[0].endswith(rtype)]
+
+    def test_default_is_create_only(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PATIENT_PRACTITIONER_WRITE_MODE", None)
+            self.assertEqual(Config().patient_practitioner_write_mode, "create-only")
+
+    def test_invalid_mode_rejected(self):
+        with self.assertRaises(ValueError):
+            Config(patient_practitioner_write_mode="overwrite")
+
+    def test_existing_patient_and_practitioner_not_overwritten(self):
+        m = mapped(sample("01_s12_book.hl7"))
+        with FakeFhir() as fhir:
+            pat = self.existing(fhir, m.patient, "p-curated",
+                                {"family": "Testpatient-Smith", "given": ["Alicia"]})
+            prac = self.existing(fhir, m.practitioners[0], "d-curated",
+                                 {"text": "Dr Jane Curated", "family": "Curated", "given": ["Jane"]})
+            proc = Processor(Config(fhir_base_url=fhir.base_url), registry=REG)
+            for name in ("01_s12_book.hl7", "02_s13_reschedule.hl7"):
+                r = proc.process(sample(name))
+                self.assertEqual(r.ack_code, "AA", r.error)
+            self.assertEqual(fhir.all("Patient"), [pat])                  # unchanged, no duplicate
+            self.assertIn(prac, fhir.all("Practitioner"))
+            self.assertEqual(self.writes(fhir, "Patient"), [])
+            self.assertEqual(r.resources["patient"], "Patient/p-curated")
+            appt = fhir.get(r.appointment)
+            actors = [p["actor"] for p in appt["participant"]]
+            self.assertIn({"reference": "Patient/p-curated", "display": "Alicia Testpatient-Smith"}, actors)
+            self.assertIn({"reference": "Practitioner/d-curated", "display": "Dr Jane Curated"}, actors)
+
+    def test_missing_patient_and_practitioner_created_once(self):
+        with FakeFhir() as fhir:
+            proc = Processor(Config(fhir_base_url=fhir.base_url), registry=REG)
+            for name in ("01_s12_book.hl7", "02_s13_reschedule.hl7"):
+                self.assertEqual(proc.process(sample(name)).ack_code, "AA")
+            self.assertEqual(len(fhir.all("Patient")), 1)
+            pat_writes = self.writes(fhir, "Patient")
+            self.assertEqual(len(pat_writes), 1)                          # created by message 1 only
+            self.assertEqual(pat_writes[0][0], "POST")
+            self.assertTrue(any(p[0].endswith("/Patient") and "If-None-Exist" in p[1] for p in fhir.posts))
+            created = fhir.all("Patient")[0]
+            self.assertEqual(created["name"], mapped(sample("01_s12_book.hl7")).patient.resource["name"])
+
+    def test_upsert_mode_overwrites_existing(self):
+        m = mapped(sample("01_s12_book.hl7"))
+        with FakeFhir() as fhir:
+            self.existing(fhir, m.patient, "p-curated", {"family": "Old", "given": ["Name"]})
+            self.existing(fhir, m.practitioners[0], "d-curated", {"text": "Dr Old Name", "family": "Old"})
+            cfg = Config(fhir_base_url=fhir.base_url, patient_practitioner_write_mode="upsert")
+            r = Processor(cfg, registry=REG).process(sample("01_s12_book.hl7"))
+            self.assertEqual(r.ack_code, "AA", r.error)
+            pat = fhir.get("Patient/p-curated")
+            self.assertEqual(pat["name"], m.patient.resource["name"])     # SIU data replaced it
+            self.assertNotEqual(pat.get("telecom"), [{"system": "email", "value": "curated@example.org"}])
+            self.assertEqual(fhir.get("Practitioner/d-curated")["name"], m.practitioners[0].resource["name"])
+            self.assertTrue(any(w[0] == "PUT" for w in self.writes(fhir, "Patient")))
+
+    def test_organization_still_never_overwritten_in_upsert_mode(self):
+        with FakeFhir() as fhir:
+            cfg = Config(fhir_base_url=fhir.base_url, patient_practitioner_write_mode="upsert")
+            proc = Processor(cfg, registry=REG)
+            proc.process(sample("05_s12_resource_timing.hl7"))
+            org = fhir.all("Organization")[0]
+            fhir.store["Organization"][org["id"]] = curated = dict(org, name="Curated")
+            proc.process(sample("05_s12_resource_timing.hl7").replace("MSG0005", "MSG0005B"))
+            self.assertEqual(fhir.all("Organization"), [curated])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,8 @@ import os
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+WRITE_MODES = ("create-only", "upsert")
+
 
 @dataclass(frozen=True)
 class Config:
@@ -20,9 +22,18 @@ class Config:
     http_host: str = os.getenv("HTTP_HOST", "0.0.0.0")
     http_port: int = int(os.getenv("HTTP_PORT", "8090"))
     fhir_timeout_s: float = float(os.getenv("FHIR_TIMEOUT_S", "15"))
+    # What to do when a matching Patient / Practitioner already exists on the FHIR server:
+    #   create-only (default) - use the server's resource unchanged; create from the SIU only if missing
+    #   upsert                - overwrite it with the SIU data (conditional update; the original behaviour)
+    patient_practitioner_write_mode: str = os.getenv("PATIENT_PRACTITIONER_WRITE_MODE", "create-only")
     # Identity this service uses in MSH-3/MSH-4 of the ACKs it sends.
     receiving_app: str = os.getenv("RECEIVING_APP", "SIU2FHIR")
     receiving_facility: str = os.getenv("RECEIVING_FACILITY", "POC")
+
+    def __post_init__(self) -> None:
+        if self.patient_practitioner_write_mode not in WRITE_MODES:
+            raise ValueError(f"PATIENT_PRACTITIONER_WRITE_MODE must be one of {', '.join(WRITE_MODES)}, "
+                             f"not {self.patient_practitioner_write_mode!r}")
 
     @property
     def default_tz(self) -> ZoneInfo:

@@ -10,8 +10,17 @@ MLLP framing is `0x0B` + message + `0x1C 0x0D`. Several messages can be sent on 
 
 ### Matching and idempotency
 
-All writes use FHIR conditional update (`PUT [type]?identifier=system|value`), which creates the resource if nothing matches and updates it if one resource matches.
-So replaying a message produces the same result and no duplicates.
+Each resource is matched on one identifier (table below) and written in one of two ways:
+
+| Resource | When a match exists | When nothing matches |
+|---|---|---|
+| Appointment, Location | Updated from the SIU message (conditional update, `PUT [type]?identifier=...`) | Created by the same request |
+| Patient, Practitioner | **Used unchanged** - the server's copy is likely richer or more accurate | Created from the SIU message (`POST` with `If-None-Exist: identifier=...`) |
+| Organization | Used unchanged | A tagged placeholder is created (`POST` with `If-None-Exist`) |
+{:.grid}
+
+Setting `PATIENT_PRACTITIONER_WRITE_MODE=upsert` makes Patient and Practitioner use conditional update instead, so the SIU data overwrites the server's copy (the original behaviour). The default is `create-only`.
+Either way, replaying a message produces the same result and no duplicates.
 
 | Resource | Match key |
 |---|---|

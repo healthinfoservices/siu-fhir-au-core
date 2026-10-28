@@ -69,6 +69,18 @@ def build_ack(msg: Optional[Message], code: str, cfg: Config,
     return "\r".join(segs)
 
 
+def _person_display(res: dict) -> str:
+    """Actor display for an existing Patient / Practitioner, built the same way as for SIU data:
+    Patient = given + family (falling back to name.text); Practitioner = name.text (falling back to
+    prefix + given + family)."""
+    names = res.get("name") or []
+    name = next((n for n in names if n.get("use") in (None, "official", "usual")), names[0] if names else {})
+    given = list(name.get("given", [])) + ([name["family"]] if name.get("family") else [])
+    if res.get("resourceType") == "Patient":
+        return " ".join(given) or name.get("text", "")
+    return name.get("text") or " ".join(list(name.get("prefix", [])) + given)
+
+
 class Processor:
     def __init__(self, cfg: Config, client: Optional[FhirClient] = None,
                  registry: Optional[au.Registry] = None):
@@ -119,17 +131,14 @@ class Processor:
 
             refs: dict[str, str] = {}
             server_res: dict[str, dict] = {}
-            # Organizations: use the server's copy (curated data is never overwritten);
-            # create a tagged placeholder only when the facility isn't there yet.
-            for org in mapped.organizations:
-                found = self.client.search_one(org.resource_type, org.search)
-                if found is None:
-                    found = self.client.conditional_create(org.resource_type, org.search, org.resource)
-                    mapped.warnings.append(f"Facility {org.resource['name']!r} not on the FHIR server; "
-                                           f"placeholder Organization/{found['id']} created")
-                refs[org.key] = f"{org.resource_type}/{found['id']}"
-                server_res[org.key] = found
-            for item in [mapped.patient, *mapped.practitioners, *mapped.locations]:
+            displays: dict[str, str] = {}
+            # Organizations first (Locations reference them), then Patient, Practitioners, Locations.
+            # "lookup-or-create" items (Organization; Patient and Practitioner unless
+            # PATIENT_PRACTITIONER_WRITE_MODE=upsert): an existing resource on the server is used
+            # unchanged - it is likely richer or more accurate than the SIU data - and the
+            # SIU-built resource is only created when none matches.
+            # "upsert" items (Location): conditional update from the SIU data.
+            for item in [*mapped.organizations, mapped.patient, *mapped.practitioners, *mapped.locations]:
                 for element, key in item.links:
                     linked = server_res.get(key, {})
                     item.resource[element] = {"reference": refs[key]}
@@ -139,10 +148,36 @@ class Processor:
                     if (element == "managingOrganization" and "address" not in item.resource
                             and linked.get("address")):
                         item.resource["address"] = dict(linked["address"][0])
-                refs[item.key] = self.client.conditional_update(
-                    item.resource_type, item.search, item.resource)
+                mode = item.mode
+                if (item.resource_type in ("Patient", "Practitioner")
+                        and self.cfg.patient_practitioner_write_mode == "upsert"):
+                    mode = "upsert"
+                if mode == "lookup-or-create":
+                    found = self.client.search_one(item.resource_type, item.search)
+                    if found is None:
+                        found = self.client.conditional_create(item.resource_type, item.search,
+                                                               item.resource)
+                        if item.resource_type == "Organization":
+                            mapped.warnings.append(
+                                f"Facility {item.resource['name']!r} not on the FHIR server; "
+                                f"placeholder Organization/{found['id']} created")
+                        else:
+                            log.info("%s: created %s/%s from the SIU message",
+                                     ctrl, item.resource_type, found["id"])
+                    else:
+                        log.info("%s: using existing %s/%s unchanged",
+                                 ctrl, item.resource_type, found["id"])
+                        if item.resource_type in ("Patient", "Practitioner"):
+                            disp = _person_display(found)
+                            if disp:
+                                displays[item.key] = disp
+                    refs[item.key] = f"{item.resource_type}/{found['id']}"
+                    server_res[item.key] = found
+                else:
+                    refs[item.key] = self.client.conditional_update(
+                        item.resource_type, item.search, item.resource)
 
-            appt = mapped.build_appointment(refs, existing.get("status") if existing else None)
+            appt = mapped.build_appointment(refs, existing.get("status") if existing else None, displays)
             if existing:
                 appt_ref = self.client.update("Appointment", existing["id"], appt)
             else:
